@@ -145,24 +145,25 @@ export const googleBearerTokenAuthMiddleware = createMiddleware<{
   // Slice off "Bearer "
   const accessToken = auth.slice(7);
 
-  // check if the access token is expired
-  // gives header and payload
-  const decodedToken = decode(accessToken);
-  // make sure the token is not expired or about to expire within 1 minute
-  if (
-    decodedToken.payload.exp &&
-    decodedToken.payload.exp < Date.now() / 1000 + 60
-  ) {
-    c.header(
-      "WWW-Authenticate",
-      'Bearer error="invalid_token", error_description="The access token expired"'
-    );
-    c.header("Cache-Control", "no-store");
-    c.header("Pragma", "no-cache");
-    throw new HTTPException(401, {
-      message: "Access token expired",
-    });
-  }
+  // Google doesn't use standard JWT tokens with expiry info, so we can't check for expiration
+  // // check if the access token is expired
+  // // gives header and payload
+  // const decodedToken = decode(accessToken);
+  // // make sure the token is not expired or about to expire within 1 minute
+  // if (
+  //   decodedToken.payload.exp &&
+  //   decodedToken.payload.exp < Date.now() / 1000 + 60
+  // ) {
+  //   c.header(
+  //     "WWW-Authenticate",
+  //     'Bearer error="invalid_token", error_description="The access token expired"'
+  //   );
+  //   c.header("Cache-Control", "no-store");
+  //   c.header("Pragma", "no-cache");
+  //   throw new HTTPException(401, {
+  //     message: "Access token expired",
+  //   });
+  // }
   // @ts-expect-error Worker executionCtx props
   c.executionCtx.props = { accessToken };
   await next();
