@@ -303,18 +303,52 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
       }
     );
 
-    // server.tool(
-    //   "startGmailWatch",
-    //   "Create a Gmail watch for new messages (requires Pub/Sub topic configuration)",
-    //   {
-    //     serverName: z.string().describe("MCP server name to tag notifications"),
-    //     labelIds: z.array(z.string()).optional().describe("Optional Gmail label IDs to monitor"),
-    //   },
-    //   async ({ serverName, labelIds }) => {
-    //     const result = await this.googleService.startGmailWatch(serverName, labelIds);
-    //     return this.formatResponse("Gmail watch started", result);
-    //   }
-    // );
+    server.tool(
+      "startGmailWatch",
+      "Create a Gmail watch for new messages (requires Pub/Sub topic configuration)",
+      {
+        serverName: z.string().describe("MCP server name to tag notifications"),
+      },
+      async ({ serverName }) => {
+        await this.googleService.startGmailWatch(serverName);
+        return this.formatResponse("Gmail watch started", { serverName });
+      }
+    );
+
+    server.tool(
+      "listInboxAddsSince",
+      "List all new messages in the INBOX since the last history ID",
+      {
+        lastProcessedHistoryId: z
+          .string()
+          .describe("Last history ID to process"),
+      },
+      async ({ lastProcessedHistoryId }) => {
+        const { messageIds, latestHistoryId, hasMore } =
+          await this.googleService.listInboxAddsSince(lastProcessedHistoryId);
+        return this.formatResponse("Inbox messages retrieved", {
+          messageIds,
+          latestHistoryId,
+          hasMore,
+        });
+      }
+    );
+
+    server.tool(
+      "commitHistory",
+      "Commit the history ID for a server to mark that we've processed all messages up to this point",
+      {
+        serverName: z.string().describe("MCP server name to tag notifications"),
+        historyId: z.string().describe("History ID to commit"),
+      },
+      async ({ serverName, historyId }) => {
+        await this.googleService.commitHistory(serverName, historyId);
+        return this.formatResponse("History committed", {
+          serverName,
+          historyId,
+        });
+      }
+    );
 
     return server;
   }

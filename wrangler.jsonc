@@ -39,6 +39,12 @@
 			}
 		]
 	},
+	"kv_namespaces": [
+		{
+			"binding": "GMAIL_HISTORY_KV",
+			"id": "d4cd8035711e42b7963aedfe3674ec39"
+		}
+	]
 	/**
 	 * Environment Variables
 	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables

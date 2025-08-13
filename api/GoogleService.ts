@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { z } from "zod";
+import { putServerCursor } from "./lib/kv-helpers";
 
 // ambient declarations for Web-available helpers in Workers
 declare const btoa: (s: string) => string;
@@ -393,19 +394,80 @@ export class GoogleService {
     );
   }
 
-  // async startGmailWatch(serverName: string, labelIds?: string[]) {
-  //   // Gmail watch requires a Pub/Sub topic; configured via env
-  //   const topicName = this.env.GOOGLE_GMAIL_TOPIC_NAME;
-  //   if (!topicName) throw new Error("Missing GOOGLE_GMAIL_TOPIC_NAME env var");
-  //   const url = `${this.gmailBase}/users/${this.userId}/watch`;
-  //   const body: any = {
-  //     topicName,
-  //     labelIds,
-  //   };
-  //   // Optionally include labelFilterAction to only include
-  //   return this.makeRequest<any>(url, {
-  //     method: "POST",
-  //     body: JSON.stringify(body),
-  //   });
-  // }
+  async startGmailWatch(serverName: string) {
+    const topicName = `projects/${this.env.GOOGLE_PROJECT_NAME}/topics/gmail-inbox-${serverName}`;
+
+    if (!this.env.GOOGLE_PROJECT_NAME)
+      throw new Error("Missing GOOGLE_PROJECT_NAME env var");
+
+    const url = `${this.gmailBase}/users/${this.userId}/watch`;
+    const body = {
+      topicName,
+      labelIds: ["INBOX"],
+      labelFilterBehavior: "INCLUDE" as const, // replaces deprecated labelFilterAction
+    };
+    const resp = await this.makeRequest<{
+      historyId: string;
+      expiration: string;
+    }>(url, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    const { historyId } = resp;
+    // save cursor so we can resume from where we left off
+    await putServerCursor(this.env, serverName, historyId);
+  }
+
+  async listInboxAddsSince(startHistoryId: string): Promise<{
+    messageIds: string[];
+    latestHistoryId: string;
+    hasMore: boolean;
+  }> {
+    const pageLimit = 10;
+    const base = new URL(`${this.gmailBase}/users/${this.userId}/history`);
+    base.searchParams.set("startHistoryId", startHistoryId);
+    base.searchParams.append("labelId", "INBOX");
+    base.searchParams.append("historyTypes", "messageAdded");
+
+    const messageIds: string[] = [];
+    let latestHistoryId = startHistoryId;
+    let pageToken: string | undefined;
+    let pages = 0;
+
+    while (true) {
+      if (pages++ > pageLimit) {
+        return { messageIds, latestHistoryId, hasMore: true };
+      }
+
+      const url = new URL(base.toString());
+      if (pageToken) {
+        url.searchParams.set("pageToken", pageToken);
+      }
+
+      const data = await this.makeRequest<any>(url.toString());
+
+      for (const h of data.history ?? []) {
+        for (const added of h.messagesAdded ?? []) {
+          const id = added?.message?.id;
+          if (id) {
+            messageIds.push(id);
+          }
+        }
+      }
+      if (data.historyId) {
+        latestHistoryId = data.historyId;
+      }
+
+      if (!data.nextPageToken) {
+        break;
+      }
+      pageToken = data.nextPageToken;
+    }
+
+    return { messageIds, latestHistoryId, hasMore: false };
+  }
+
+  async commitHistory(serverName: string, historyId: string) {
+    await putServerCursor(this.env, serverName, historyId);
+  }
 }

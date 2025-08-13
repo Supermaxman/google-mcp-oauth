@@ -5,10 +5,12 @@ import {
   exchangeCodeForToken as exchangeGoogleCodeForToken,
   refreshAccessToken as refreshGoogleAccessToken,
   GOOGLE_DEFAULT_SCOPES,
+  googlePubSubOidcAuthMiddleware,
 } from "./lib/google-auth.ts";
 import { cors } from "hono/cors";
 import { Hono } from "hono";
 import type { WebhookResponse } from "../types";
+import { getServerCursor } from "./lib/kv-helpers.ts";
 
 // Export the GoogleMCP class so the Worker runtime can find it
 export { GoogleMCP };
@@ -24,6 +26,11 @@ interface RegisteredClient {
   created_at: number;
 }
 const registeredClients = new Map<string, RegisteredClient>();
+
+function saEmailFor(c: any) {
+  const name = c.req.header("x-mcp-name");
+  return `push-invoker-${name}@${c.env.GOOGLE_PROJECT_NAME}.iam.gserviceaccount.com`;
+}
 
 export default new Hono<{ Bindings: Env }>()
   .use(cors())
@@ -145,7 +152,7 @@ export default new Hono<{ Bindings: Env }>()
         return c.json(result);
       }
     } catch (err) {
-      // Pass through OAuth errors from Microsoft
+      // Pass through OAuth errors from Google
       const e = err as unknown as {
         status?: number;
         body?: unknown;
@@ -200,45 +207,87 @@ export default new Hono<{ Bindings: Env }>()
       GoogleMCP.serve("/mcp", { binding: "GOOGLE_MCP_OBJECT" }).fetch
     )
   )
-
+  .use(
+    "/webhooks",
+    googlePubSubOidcAuthMiddleware({
+      audience: (c) => c.req.url,
+      serviceAccountEmail: saEmailFor,
+    })
+  )
   // Google webhooks (Gmail via Pub/Sub push)
-  // .route(
-  //   "/webhooks",
-  //   new Hono<{ Bindings: Env }>().post("/gmail", async (c) => {
-  //     // Pub/Sub push format; base64-encoded message.data includes JSON { emailAddress, historyId }
-  //     try {
-  //       const body = await c.req.json<{
-  //         message?: { data?: string; attributes?: Record<string, string> };
-  //       }>();
-  //       let emailAddress: string | undefined;
-  //       let historyId: string | undefined;
-  //       if (body.message?.data) {
-  //         const json = JSON.parse((globalThis as any).atob(body.message.data));
-  //         emailAddress = json.emailAddress;
-  //         historyId = json.historyId;
-  //       }
-  //       // Fallback from attributes
-  //       emailAddress = emailAddress ?? body.message?.attributes?.emailAddress;
-  //       historyId = historyId ?? body.message?.attributes?.historyId;
+  .route(
+    "/webhooks",
+    new Hono<{ Bindings: Env }>().post("/email-notify", async (c) => {
+      // Pub/Sub push format; base64-encoded message.data includes JSON { emailAddress, historyId }
+      try {
+        // At this point the request is verified by the middleware.
 
-  //       const name = c.req.header("x-mcp-name") ?? "gmail";
-  //       const respData = { name, emailAddress, historyId };
-  //       const response: WebhookResponse = {
-  //         reqResponseCode: 204,
-  //         reqResponseContent: "",
-  //         reqResponseContentType: "text",
-  //         promptContent: `Gmail notification received.\n\n\`\`\`json\n${JSON.stringify(
-  //           respData,
-  //           null,
-  //           2
-  //         )}\n\`\`\``,
-  //       };
-  //       return c.json(response);
-  //     } catch (e) {
-  //       return c.json({ error: "Invalid Pub/Sub push payload" }, 400);
-  //     }
-  //   })
-  // )
+        // Pub/Sub envelope
+        const body = await c.req.json<{
+          message?: {
+            data?: string;
+            attributes?: Record<string, string>;
+            publishTime?: string;
+          };
+        }>();
+
+        // Decode base64url payload
+        const b64 = body.message?.data ?? "";
+        const std = b64.replace(/-/g, "+").replace(/_/g, "/");
+        const pad = std.length % 4 ? 4 - (std.length % 4) : 0;
+        const decoded = atob(std + "=".repeat(pad));
+        let emailAddress: string | undefined;
+        let historyId: string | undefined;
+
+        try {
+          const payload = JSON.parse(decoded);
+          emailAddress = payload.emailAddress;
+          historyId = payload.historyId;
+        } catch {
+          // some libs may duplicate these in attributes
+        }
+        emailAddress = emailAddress ?? body.message?.attributes?.emailAddress;
+        historyId = historyId ?? body.message?.attributes?.historyId;
+        const publishTime = body.message?.publishTime;
+
+        // You asked to return server name + message IDs (if available) + email (if present).
+        // If you haven’t wired history listing yet, just return the basics.
+        const server = c.req.header("x-mcp-name");
+        if (!server) {
+          return c.json({ error: "missing server name" }, 400);
+        }
+
+        const last = await getServerCursor(c.env, server);
+        const respData = {
+          server,
+          emailAddress: emailAddress,
+          // messageIds can be populated by calling users.history.list here if you want (previous step).
+          latestHistoryId: historyId,
+          lastProcessedHistoryId: last,
+          publishTime: publishTime,
+        };
+
+        const response: WebhookResponse = {
+          reqResponseCode: 204, // your orchestrator will return 204 to Pub/Sub
+          reqResponseContent: "",
+          reqResponseContentType: "text",
+          promptContent: `Gmail notification received.\n\n\`\`\`json\n${JSON.stringify(
+            respData,
+            null,
+            2
+          )}\n\`\`\``,
+        };
+
+        return c.json(response, 200);
+      } catch (e: any) {
+        // If this throws, Pub/Sub will retry. Only 4xx when truly malformed.
+        return c.json(
+          { error: e?.message ?? "Invalid Pub/Sub push payload" },
+          400
+        );
+      }
+    })
+  )
 
   // Health check endpoint
   .get("/", (c) => c.text("Google MCP Server is running"));

@@ -1,6 +1,126 @@
+import { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import { decode } from "hono/jwt";
+
+type OidcOpts = {
+  /**
+   * Expected audience (aud) — MUST match the value you set with:
+   *   --push-auth-token-audience="https://chat.aiescape.io/.../email-notify"
+   * You can pass a string or a function to compute it from the request.
+   * Defaults to `c.req.url`.
+   */
+  audience?: string | ((c: Context) => string);
+
+  /**
+   * The service account email that Pub/Sub uses to sign the OIDC token,
+   * i.e. the same one you passed to:
+   *   --push-auth-service-account="push-invoker-...@PROJECT_ID.iam.gserviceaccount.com"
+   * You can pass a string or a function to compute it (e.g., by x-mcp-name).
+   * Defaults to env.GOOGLE_PUBSUB_PUSH_SERVICE_ACCOUNT.
+   */
+  serviceAccountEmail?: string | ((c: Context) => string);
+};
+
+type PubSubClaims = {
+  iss: string;
+  aud: string;
+  email: string;
+  email_verified: string | boolean;
+  exp?: number | string;
+  [k: string]: unknown;
+};
+
+export const googlePubSubOidcAuthMiddleware = (opts: OidcOpts = {}) =>
+  createMiddleware<{
+    Bindings: Env;
+    Variables: { pubsubClaims: PubSubClaims };
+  }>(async (c, next) => {
+    const auth = c.req.header("Authorization");
+    if (!auth || !auth.startsWith("Bearer ")) {
+      c.header("WWW-Authenticate", 'Bearer realm="pubsub"');
+      throw new HTTPException(401, {
+        message: "Missing or invalid bearer token",
+      });
+    }
+
+    const idToken = auth.slice(7).trim();
+
+    // Optional quick local exp check to short-circuit obviously stale tokens
+    try {
+      const decoded = decode(idToken);
+      const exp = (decoded?.payload as any)?.exp as number | undefined;
+      if (exp && exp < Date.now() / 1000 + 30) {
+        c.header(
+          "WWW-Authenticate",
+          'Bearer error="invalid_token", error_description="The id_token is expired"'
+        );
+        c.header("Cache-Control", "no-store");
+        c.header("Pragma", "no-cache");
+        throw new HTTPException(401, { message: "Expired id_token" });
+      }
+    } catch {
+      // If decode fails, we’ll still attempt remote verification below
+    }
+
+    // Resolve expectations
+    const expectedAudience =
+      typeof opts.audience === "function"
+        ? opts.audience(c)
+        : opts.audience || c.req.url;
+
+    const configuredEmail =
+      typeof opts.serviceAccountEmail === "function"
+        ? opts.serviceAccountEmail(c)
+        : opts.serviceAccountEmail;
+
+    if (!configuredEmail) {
+      throw new HTTPException(500, {
+        message:
+          "Server misconfigured: GOOGLE_PUBSUB_PUSH_SERVICE_ACCOUNT or serviceAccountEmail resolver is required",
+      });
+    }
+
+    // Verify via Google tokeninfo (validates signature, issuer, etc.)
+    const verifyResp = await fetch(
+      `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(
+        idToken
+      )}`
+    );
+
+    if (!verifyResp.ok) {
+      throw new HTTPException(401, { message: "Invalid id_token" });
+    }
+
+    const claims = (await verifyResp.json()) as PubSubClaims;
+
+    // Enforce claims
+    if (claims.iss !== "https://accounts.google.com") {
+      throw new HTTPException(401, { message: "Invalid issuer" });
+    }
+    if (claims.aud !== expectedAudience) {
+      throw new HTTPException(401, {
+        message: `Invalid audience: got ${claims.aud}`,
+      });
+    }
+    if (claims.email !== configuredEmail) {
+      throw new HTTPException(401, {
+        message: `Invalid signer email: got ${claims.email}`,
+      });
+    }
+    const verified =
+      claims.email_verified === true || claims.email_verified === "true";
+    if (!verified) {
+      throw new HTTPException(401, {
+        message: "Service account email not verified",
+      });
+    }
+
+    // Stash claims for downstream handler(s)
+    c.set("pubsubClaims", claims);
+
+    await next();
+  });
 
 export const GOOGLE_DEFAULT_SCOPES = [
   "openid",

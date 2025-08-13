@@ -5,10 +5,9 @@ declare namespace Cloudflare {
     ASSETS: Fetcher;
     GOOGLE_CLIENT_ID: string;
     GOOGLE_CLIENT_SECRET: string;
-    GOOGLE_GMAIL_TOPIC_NAME?: string; // Pub/Sub topic resource name for Gmail watch
-    MICROSOFT_MCP_OBJECT: DurableObjectNamespace<
-      import("./api/index").MicrosoftMCP
-    >;
+    GOOGLE_PROJECT_NAME?: string; // Pub/Sub topic resource name for Gmail watch
+    GOOGLE_MCP_OBJECT: DurableObjectNamespace<import("./api/index").GoogleMCP>;
+    GMAIL_HISTORY_KV: KVNamespace;
   }
 }
 interface Env extends Cloudflare.Env {}

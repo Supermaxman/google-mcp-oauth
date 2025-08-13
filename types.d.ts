@@ -2,8 +2,9 @@
 interface Env {
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
-  GOOGLE_GMAIL_TOPIC_NAME?: string; // Pub/Sub topic resource name for Gmail watch
+  GOOGLE_PROJECT_NAME?: string; // Pub/Sub topic resource name for Gmail watch
   GOOGLE_MCP_OBJECT: DurableObjectNamespace;
+  GMAIL_HISTORY_KV: KVNamespace;
 }
 
 export type Todo = {
@@ -29,7 +30,6 @@ type AuthenticationContext = {
   accessToken: string;
 };
 
-// Context from the Microsoft OAuth process
 // Context from the Google OAuth process
 export type GoogleAuthContext = {
   accessToken: string;
