@@ -262,8 +262,8 @@ export default new Hono<{ Bindings: Env }>()
           server,
           emailAddress: emailAddress,
           // messageIds can be populated by calling users.history.list here if you want (previous step).
-          latestHistoryId: historyId,
-          lastProcessedHistoryId: last,
+          latestHistoryId: `${historyId}`,
+          lastProcessedHistoryId: `${last}`,
           publishTime: publishTime,
         };
 
