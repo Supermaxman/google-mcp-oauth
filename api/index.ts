@@ -40,7 +40,7 @@ export default new Hono<{ Bindings: Env }>()
       response_modes_supported: ["query"],
       grant_types_supported: ["authorization_code", "refresh_token"],
       token_endpoint_auth_methods_supported: ["none"],
-      code_challenge_methods_supported: ["S256"],
+      code_challenge_methods_supported: ["S256", "plain"],
       scopes_supported: GOOGLE_DEFAULT_SCOPES,
     });
   })
@@ -102,28 +102,84 @@ export default new Hono<{ Bindings: Env }>()
       googleAuthUrl.searchParams.set("response_type", "code");
     }
 
+    const m = googleAuthUrl.searchParams.get("code_challenge_method"); // 'S256' | 'plain' | null
+    const cc = googleAuthUrl.searchParams.get("code_challenge");
+    const ru = googleAuthUrl.searchParams.get("redirect_uri");
+    console.log("PKCE authorize:", {
+      method: m,
+      code_challenge: cc?.slice(0, 8) + "…",
+      redirect_uri: ru,
+    });
+
     return c.redirect(googleAuthUrl.toString());
   })
 
   .post("/token", async (c) => {
     const body = await c.req.parseBody();
-    if (body.grant_type === "authorization_code") {
-      const result = await exchangeGoogleCodeForToken(
-        body.code as string,
-        body.redirect_uri as string,
-        c.env.GOOGLE_CLIENT_ID,
-        c.env.GOOGLE_CLIENT_SECRET,
-        body.code_verifier as string | undefined
-      );
-      return c.json(result);
-    } else if (body.grant_type === "refresh_token") {
-      const result = await refreshGoogleAccessToken(
-        body.refresh_token as string,
-        c.env.GOOGLE_CLIENT_ID,
-        c.env.GOOGLE_CLIENT_SECRET
-      );
-      return c.json(result);
+    const cv = body.code_verifier as string | undefined;
+    console.log("PKCE token:", {
+      code_verifier_len: cv?.length,
+      redirect_uri: body.redirect_uri,
+    });
+
+    try {
+      if (body.grant_type === "authorization_code") {
+        const result = await exchangeGoogleCodeForToken(
+          body.code as string,
+          body.redirect_uri as string,
+          c.env.GOOGLE_CLIENT_ID,
+          c.env.GOOGLE_CLIENT_SECRET,
+          body.code_verifier as string | undefined,
+          (body.scope as string | undefined) ||
+            (typeof body.scope === "string"
+              ? (body.scope as string)
+              : undefined)
+        );
+        return c.json(result);
+      } else if (body.grant_type === "refresh_token") {
+        const result = await refreshGoogleAccessToken(
+          body.refresh_token as string,
+          c.env.GOOGLE_CLIENT_ID,
+          c.env.GOOGLE_CLIENT_SECRET
+        );
+        return c.json(result);
+      }
+    } catch (err) {
+      // Pass through OAuth errors from Microsoft
+      const e = err as unknown as {
+        status?: number;
+        body?: unknown;
+        name?: string;
+      };
+      if (e && e.name === "OAuthHttpError") {
+        const allowedStatuses = [
+          400, 401, 403, 404, 405, 409, 410, 415, 422, 429, 500, 502, 503, 504,
+        ] as const;
+        const statusCandidate = (e.status as number) || 400;
+        const status = (allowedStatuses as readonly number[]).includes(
+          statusCandidate
+        )
+          ? (statusCandidate as
+              | 400
+              | 401
+              | 403
+              | 404
+              | 405
+              | 409
+              | 410
+              | 415
+              | 422
+              | 429
+              | 500
+              | 502
+              | 503
+              | 504)
+          : (400 as const);
+        return c.json(e.body ?? { error: "invalid_request" }, { status });
+      }
+      throw err;
     }
+
     return c.json({ error: "unsupported_grant_type" }, 400);
   })
 
@@ -185,4 +241,4 @@ export default new Hono<{ Bindings: Env }>()
   // )
 
   // Health check endpoint
-  .get("/", (c) => c.text("MCP Server is running (Google)"));
+  .get("/", (c) => c.text("Google MCP Server is running"));

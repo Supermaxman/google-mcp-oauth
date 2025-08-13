@@ -8,11 +8,7 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
   async init() {}
 
   get googleService() {
-    return new GoogleService(
-      this.env,
-      this.props.accessToken,
-      this.props.refreshToken
-    );
+    return new GoogleService(this.env, this.props.accessToken);
   }
 
   formatResponse = (description: string, data: unknown) => ({

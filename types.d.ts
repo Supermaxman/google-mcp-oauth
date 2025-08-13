@@ -33,7 +33,6 @@ type AuthenticationContext = {
 // Context from the Google OAuth process
 export type GoogleAuthContext = {
   accessToken: string;
-  refreshToken: string;
   expiresIn?: number;
   tokenType?: string;
   scope?: string;

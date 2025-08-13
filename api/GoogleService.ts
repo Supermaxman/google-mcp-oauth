@@ -7,15 +7,13 @@ declare const btoa: (s: string) => string;
 export class GoogleService {
   private env: Env;
   private accessToken: string;
-  private refreshToken: string;
   private gmailBase = "https://gmail.googleapis.com/gmail/v1";
   private calendarBase = "https://www.googleapis.com/calendar/v3";
   private userId = "me"; // Google APIs support special alias "me" for the current user
 
-  constructor(env: Env, accessToken: string, refreshToken: string) {
+  constructor(env: Env, accessToken: string) {
     this.env = env;
     this.accessToken = accessToken;
-    this.refreshToken = refreshToken;
   }
 
   private async makeRequest<T>(

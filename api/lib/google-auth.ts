@@ -1,5 +1,6 @@
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
+import { decode } from "hono/jwt";
 
 export const GOOGLE_DEFAULT_SCOPES = [
   "openid",
@@ -17,6 +18,17 @@ export function getGoogleAuthEndpoint(endpoint: "authorize" | "token"): string {
     return "https://accounts.google.com/o/oauth2/v2/auth";
   }
   return "https://oauth2.googleapis.com/token";
+}
+
+export class OAuthHttpError extends Error {
+  status: number;
+  body: unknown;
+  constructor(message: string, status: number, body: unknown) {
+    super(message);
+    this.name = "OAuthHttpError";
+    this.status = status;
+    this.body = body;
+  }
 }
 
 type TokenResponse = {
@@ -42,7 +54,7 @@ export async function exchangeCodeForToken(
   clientId: string,
   clientSecret: string | undefined,
   codeVerifier?: string,
-  scopes: string[] = GOOGLE_DEFAULT_SCOPES
+  scope?: string
 ): Promise<TokenResponse> {
   const body = form({
     client_id: clientId,
@@ -50,7 +62,7 @@ export async function exchangeCodeForToken(
     grant_type: "authorization_code",
     code,
     redirect_uri: redirectUri,
-    scope: scopes.join(" "),
+    scope,
     code_verifier: codeVerifier,
   });
 
@@ -59,8 +71,22 @@ export async function exchangeCodeForToken(
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
   });
-  if (!res.ok)
-    throw new Error(`Google token exchange failed: ${await res.text()}`);
+  if (!res.ok) {
+    const isJson = (res.headers.get("content-type") || "").includes(
+      "application/json"
+    );
+    const errorBody = isJson
+      ? await res.json().catch(() => ({ error: "server_error" }))
+      : {
+          error: "server_error",
+          error_description: await res.text().catch(() => ""),
+        };
+    throw new OAuthHttpError(
+      "Token exchange failed",
+      res.status || 400,
+      errorBody
+    );
+  }
   return (await res.json()) as TokenResponse;
 }
 
@@ -83,23 +109,61 @@ export async function refreshAccessToken(
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
   });
-  if (!res.ok) throw new Error(`Google refresh failed: ${await res.text()}`);
+  if (!res.ok) {
+    const isJson = (res.headers.get("content-type") || "").includes(
+      "application/json"
+    );
+    const errorBody = isJson
+      ? await res.json().catch(() => ({ error: "server_error" }))
+      : {
+          error: "server_error",
+          error_description: await res.text().catch(() => ""),
+        };
+    throw new OAuthHttpError("Refresh failed", res.status || 400, errorBody);
+  }
   return (await res.json()) as TokenResponse;
 }
 
 export const googleBearerTokenAuthMiddleware = createMiddleware<{
   Bindings: Env;
 }>(async (c, next) => {
-  const auth = c.req.header("Authorization") ?? "";
+  const auth = c.req.header("Authorization");
+
+  if (!auth) {
+    c.header("WWW-Authenticate", 'Bearer realm="api"');
+    throw new HTTPException(401, {
+      message: "Missing or invalid access token",
+    });
+  }
   if (!auth.startsWith("Bearer ")) {
+    c.header("WWW-Authenticate", 'Bearer realm="api"');
     throw new HTTPException(401, {
       message: "Missing or invalid access token",
     });
   }
 
+  // Slice off "Bearer "
   const accessToken = auth.slice(7);
-  const refreshToken = c.req.header("X-Google-Refresh-Token") ?? "";
+
+  // check if the access token is expired
+  // gives header and payload
+  const decodedToken = decode(accessToken);
+  // make sure the token is not expired or about to expire within 1 minute
+  if (
+    decodedToken.payload.exp &&
+    decodedToken.payload.exp < Date.now() / 1000 + 60
+  ) {
+    c.header(
+      "WWW-Authenticate",
+      'Bearer error="invalid_token", error_description="The access token expired"'
+    );
+    c.header("Cache-Control", "no-store");
+    c.header("Pragma", "no-cache");
+    throw new HTTPException(401, {
+      message: "Access token expired",
+    });
+  }
   // @ts-expect-error Worker executionCtx props
-  c.executionCtx.props = { accessToken, refreshToken };
+  c.executionCtx.props = { accessToken };
   await next();
 });
