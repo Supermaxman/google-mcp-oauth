@@ -326,7 +326,7 @@ export default new Hono<{ Bindings: Env }>()
           reqResponseCode: 204, // your orchestrator will return 204 to Pub/Sub
           reqResponseContent: "",
           reqResponseContentType: "text",
-          promptContent: `New emails received.\n\n\`\`\`json\n${JSON.stringify(
+          promptContent: `Gmail notification received.\n\n\`\`\`json\n${JSON.stringify(
             respData,
             null,
             2

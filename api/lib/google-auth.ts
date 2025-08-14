@@ -263,7 +263,14 @@ export const googleBearerTokenAuthMiddleware = createMiddleware<{
   }
 
   // Slice off "Bearer "
-  const accessToken = auth.slice(7);
+  const accessToken = auth.slice(7).trim();
+
+  if (!accessToken) {
+    c.header("WWW-Authenticate", 'Bearer realm="api"');
+    throw new HTTPException(401, {
+      message: "Missing or invalid access token",
+    });
+  }
 
   // Google doesn't use standard JWT tokens with expiry info, so we can't check for expiration
   // // check if the access token is expired
