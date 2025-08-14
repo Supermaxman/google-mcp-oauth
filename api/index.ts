@@ -302,13 +302,12 @@ export default new Hono<{ Bindings: Env }>()
 
         const api = new GoogleService(c.env, accessToken);
 
-        // TODO consider what to do if there are more.
-        const { emailIds } = await api.listInboxAddsSince(last);
+        const { messageIds } = await api.listInboxAddsSince(last);
 
         // preemptively update the cursor so we don't repeat processing, not end of the world if we miss a few
         await putServerCursor(c.env, server, latestHistoryId);
 
-        if (emailIds.length === 0) {
+        if (messageIds.length === 0) {
           const response: WebhookResponse = {
             reqResponseCode: 204, // your orchestrator will return 204 to Pub/Sub
             reqResponseContent: "",
@@ -320,7 +319,7 @@ export default new Hono<{ Bindings: Env }>()
         const respData = {
           server,
           emailAddress: emailAddress,
-          emailIds: emailIds,
+          emailIds: messageIds,
         };
 
         const response: WebhookResponse = {

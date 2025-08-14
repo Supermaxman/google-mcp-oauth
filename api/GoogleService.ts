@@ -419,7 +419,7 @@ export class GoogleService {
   }
 
   async listInboxAddsSince(startHistoryId: string): Promise<{
-    emailIds: string[];
+    messageIds: string[];
     latestHistoryId: string;
     hasMore: boolean;
   }> {
@@ -429,14 +429,14 @@ export class GoogleService {
     base.searchParams.append("labelId", "INBOX");
     base.searchParams.append("historyTypes", "messageAdded");
 
-    const emailIds: string[] = [];
+    const messageIds: string[] = [];
     let latestHistoryId = startHistoryId;
     let pageToken: string | undefined;
     let pages = 0;
 
     while (true) {
       if (pages++ > pageLimit) {
-        return { emailIds, latestHistoryId, hasMore: true };
+        return { messageIds, latestHistoryId, hasMore: true };
       }
 
       const url = new URL(base.toString());
@@ -450,7 +450,7 @@ export class GoogleService {
         for (const added of h.messagesAdded ?? []) {
           const id = added?.message?.id;
           if (id) {
-            emailIds.push(id);
+            messageIds.push(id);
           }
         }
       }
@@ -464,7 +464,7 @@ export class GoogleService {
       pageToken = data.nextPageToken;
     }
 
-    return { emailIds, latestHistoryId, hasMore: false };
+    return { messageIds, latestHistoryId, hasMore: false };
   }
 
   async commitHistory(serverName: string, historyId: string) {
