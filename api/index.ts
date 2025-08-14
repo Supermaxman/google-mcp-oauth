@@ -10,7 +10,8 @@ import {
 import { cors } from "hono/cors";
 import { Hono } from "hono";
 import type { WebhookResponse } from "../types";
-import { getServerCursor } from "./lib/kv-helpers.ts";
+import { getServerCursor, putServerCursor } from "./lib/kv-helpers.ts";
+import { GoogleService } from "./GoogleService.ts";
 
 // Export the GoogleMCP class so the Worker runtime can find it
 export { GoogleMCP };
@@ -257,14 +258,36 @@ export default new Hono<{ Bindings: Env }>()
           return c.json({ error: "missing server name" }, 400);
         }
 
+        const authHeader = c.req.header("x-mcp-authorization");
+        if (!authHeader) {
+          return c.json({ error: "missing MCP authorization header" }, 400);
+        }
+
+        const accessToken = authHeader.split(" ")[1];
+        if (!accessToken) {
+          return c.json({ error: "missing access token" }, 400);
+        }
+        const latestHistoryId = `${historyId}`;
         const last = await getServerCursor(c.env, server);
+
+        if (!last) {
+          return c.json({ error: "missing last processed history ID" }, 400);
+        }
+
+        const api = new GoogleService(c.env, accessToken);
+
+        // TODO consider what to do if there are more.
+        const { messageIds } = await api.listInboxAddsSince(last);
+
+        // preemptively update the cursor so we don't repeat processing, not end of the world if we miss a few
+        await putServerCursor(c.env, server, latestHistoryId);
+
         const respData = {
           server,
           emailAddress: emailAddress,
-          // messageIds can be populated by calling users.history.list here if you want (previous step).
-          latestHistoryId: `${historyId}`,
-          lastProcessedHistoryId: last,
           publishTime: publishTime,
+          // messageIds can be populated by calling users.history.list here if you want (previous step).
+          messageIds: messageIds,
         };
 
         const response: WebhookResponse = {

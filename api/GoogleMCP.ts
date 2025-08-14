@@ -315,40 +315,40 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
       }
     );
 
-    server.tool(
-      "listInboxAddsSince",
-      "List all new messages in the INBOX since the last history ID",
-      {
-        lastProcessedHistoryId: z
-          .string()
-          .describe("Last history ID to process"),
-      },
-      async ({ lastProcessedHistoryId }) => {
-        const { messageIds, latestHistoryId, hasMore } =
-          await this.googleService.listInboxAddsSince(lastProcessedHistoryId);
-        return this.formatResponse("Inbox messages retrieved", {
-          messageIds,
-          latestHistoryId,
-          hasMore,
-        });
-      }
-    );
+    // server.tool(
+    //   "listInboxAddsSince",
+    //   "List all new messages in the INBOX since the last history ID",
+    //   {
+    //     lastProcessedHistoryId: z
+    //       .string()
+    //       .describe("Last history ID to process"),
+    //   },
+    //   async ({ lastProcessedHistoryId }) => {
+    //     const { messageIds, latestHistoryId, hasMore } =
+    //       await this.googleService.listInboxAddsSince(lastProcessedHistoryId);
+    //     return this.formatResponse("Inbox messages retrieved", {
+    //       messageIds,
+    //       latestHistoryId,
+    //       hasMore,
+    //     });
+    //   }
+    // );
 
-    server.tool(
-      "commitHistory",
-      "Commit the history ID for a server to mark that we've processed all messages up to this point",
-      {
-        serverName: z.string().describe("MCP server name to tag notifications"),
-        historyId: z.string().describe("History ID to commit"),
-      },
-      async ({ serverName, historyId }) => {
-        await this.googleService.commitHistory(serverName, historyId);
-        return this.formatResponse("History committed", {
-          serverName,
-          historyId,
-        });
-      }
-    );
+    // server.tool(
+    //   "commitHistory",
+    //   "Commit the history ID for a server to mark that we've processed all messages up to this point",
+    //   {
+    //     serverName: z.string().describe("MCP server name to tag notifications"),
+    //     historyId: z.string().describe("History ID to commit"),
+    //   },
+    //   async ({ serverName, historyId }) => {
+    //     await this.googleService.commitHistory(serverName, historyId);
+    //     return this.formatResponse("History committed", {
+    //       serverName,
+    //       historyId,
+    //     });
+    //   }
+    // );
 
     return server;
   }
