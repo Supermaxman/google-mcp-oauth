@@ -110,6 +110,19 @@ export default new Hono<{ Bindings: Env }>()
       googleAuthUrl.searchParams.set("response_type", "code");
     }
 
+    // Ensure offline access so Google will issue refresh_token
+    if (!googleAuthUrl.searchParams.get("access_type")) {
+      googleAuthUrl.searchParams.set("access_type", "offline");
+    }
+    // Prompt consent if caller didn't specify; helps receive refresh_token
+    if (!googleAuthUrl.searchParams.get("prompt")) {
+      googleAuthUrl.searchParams.set("prompt", "consent");
+    }
+    // Enable incremental auth behavior by default
+    if (!googleAuthUrl.searchParams.get("include_granted_scopes")) {
+      googleAuthUrl.searchParams.set("include_granted_scopes", "true");
+    }
+
     const m = googleAuthUrl.searchParams.get("code_challenge_method"); // 'S256' | 'plain' | null
     const cc = googleAuthUrl.searchParams.get("code_challenge");
     const ru = googleAuthUrl.searchParams.get("redirect_uri");
