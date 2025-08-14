@@ -282,6 +282,15 @@ export default new Hono<{ Bindings: Env }>()
         // preemptively update the cursor so we don't repeat processing, not end of the world if we miss a few
         await putServerCursor(c.env, server, latestHistoryId);
 
+        if (messageIds.length === 0) {
+          const response: WebhookResponse = {
+            reqResponseCode: 204, // your orchestrator will return 204 to Pub/Sub
+            reqResponseContent: "",
+            reqResponseContentType: "text",
+          };
+          return c.json(response, 200);
+        }
+
         const respData = {
           server,
           emailAddress: emailAddress,
