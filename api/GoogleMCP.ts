@@ -184,7 +184,7 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
 
     server.tool(
       "markEmailAsRead",
-      "Mark a Gmail message as read",
+      "Mark a Gmail email as read",
       { emailId: z.string() },
       async ({ emailId }) => {
         await this.googleService.markEmailAsRead(emailId);
@@ -194,7 +194,7 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
 
     server.tool(
       "archiveEmail",
-      "Archive a Gmail message (remove from INBOX)",
+      "Archive a Gmail email (remove from INBOX)",
       { emailId: z.string() },
       async ({ emailId }) => {
         const res = await this.googleService.archiveEmail(emailId);
@@ -204,7 +204,7 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
 
     server.tool(
       "getEmail",
-      "Get a Gmail message by ID",
+      "Get a Gmail email by ID",
       { emailId: z.string() },
       async ({ emailId }) => {
         const email = await this.googleService.getEmail(emailId);
@@ -236,7 +236,7 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
 
     server.tool(
       "createReplyDraft",
-      "Create a reply (or reply-all) draft to a message",
+      "Create a reply (or reply-all) draft to an email",
       {
         originalEmailId: z.string(),
         replyAll: z.boolean().optional().default(false),
@@ -295,7 +295,7 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
 
     server.tool(
       "deleteEmail",
-      "Delete a Gmail message by ID",
+      "Delete a Gmail email by ID",
       { emailId: z.string() },
       async ({ emailId }) => {
         await this.googleService.deleteEmail(emailId);
@@ -305,7 +305,7 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
 
     server.tool(
       "startGmailWatch",
-      "Create a Gmail watch for new messages (requires Pub/Sub topic configuration)",
+      "Create a Gmail watch for new emails (requires Pub/Sub topic configuration)",
       {
         serverName: z.string().describe("MCP server name to tag notifications"),
       },
