@@ -275,7 +275,7 @@ export default new Hono<{ Bindings: Env }>()
         }
         emailAddress = emailAddress ?? body.message?.attributes?.emailAddress;
         historyId = historyId ?? body.message?.attributes?.historyId;
-        const publishTime = body.message?.publishTime;
+        // const publishTime = body.message?.publishTime;
 
         // You asked to return server name + message IDs (if available) + email (if present).
         // If you haven’t wired history listing yet, just return the basics.
@@ -303,12 +303,12 @@ export default new Hono<{ Bindings: Env }>()
         const api = new GoogleService(c.env, accessToken);
 
         // TODO consider what to do if there are more.
-        const { messageIds } = await api.listInboxAddsSince(last);
+        const { emailIds } = await api.listInboxAddsSince(last);
 
         // preemptively update the cursor so we don't repeat processing, not end of the world if we miss a few
         await putServerCursor(c.env, server, latestHistoryId);
 
-        if (messageIds.length === 0) {
+        if (emailIds.length === 0) {
           const response: WebhookResponse = {
             reqResponseCode: 204, // your orchestrator will return 204 to Pub/Sub
             reqResponseContent: "",
@@ -320,16 +320,14 @@ export default new Hono<{ Bindings: Env }>()
         const respData = {
           server,
           emailAddress: emailAddress,
-          publishTime: publishTime,
-          // messageIds can be populated by calling users.history.list here if you want (previous step).
-          messageIds: messageIds,
+          emailIds: emailIds,
         };
 
         const response: WebhookResponse = {
           reqResponseCode: 204, // your orchestrator will return 204 to Pub/Sub
           reqResponseContent: "",
           reqResponseContentType: "text",
-          promptContent: `Gmail notification received.\n\n\`\`\`json\n${JSON.stringify(
+          promptContent: `New emails received.\n\n\`\`\`json\n${JSON.stringify(
             respData,
             null,
             2
