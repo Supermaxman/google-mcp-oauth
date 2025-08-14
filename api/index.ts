@@ -294,15 +294,15 @@ export default new Hono<{ Bindings: Env }>()
           return c.json({ error: "missing access token" }, 400);
         }
         const latestHistoryId = `${historyId}`;
-        const last = await getServerCursor(c.env, server);
+        const lastHistoryId = await getServerCursor(c.env, server);
 
-        if (!last) {
+        if (!lastHistoryId) {
           return c.json({ error: "missing last processed history ID" }, 400);
         }
 
         const api = new GoogleService(c.env, accessToken);
 
-        const { messageIds } = await api.listInboxAddsSince(last);
+        const { messageIds } = await api.listInboxAddsSince(lastHistoryId);
 
         // preemptively update the cursor so we don't repeat processing, not end of the world if we miss a few
         await putServerCursor(c.env, server, latestHistoryId);
