@@ -110,6 +110,14 @@ export default new Hono<{ Bindings: Env }>()
       googleAuthUrl.searchParams.set("response_type", "code");
     }
 
+    // If client set a code_challenge but omitted the method, default to S256
+    if (
+      googleAuthUrl.searchParams.get("code_challenge") &&
+      !googleAuthUrl.searchParams.get("code_challenge_method")
+    ) {
+      googleAuthUrl.searchParams.set("code_challenge_method", "S256");
+    }
+
     // Ensure offline access so Google will issue refresh_token
     if (!googleAuthUrl.searchParams.get("access_type")) {
       googleAuthUrl.searchParams.set("access_type", "offline");
@@ -139,8 +147,13 @@ export default new Hono<{ Bindings: Env }>()
     const body = await c.req.parseBody();
     const cv = body.code_verifier as string | undefined;
     console.log("PKCE token:", {
-      code_verifier_len: cv?.length,
+      code_verifier: cv?.slice(0, 8) + "…",
       redirect_uri: body.redirect_uri,
+      grant_type: body.grant_type,
+      refresh_token: body.refresh_token
+        ? (body.refresh_token as string).length
+        : undefined,
+      scope: body.scope,
     });
 
     try {
