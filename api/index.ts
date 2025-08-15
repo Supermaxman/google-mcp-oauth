@@ -286,7 +286,6 @@ export default new Hono<{ Bindings: Env }>()
         }
 
         console.log("server", server);
-        console.log("historyId", historyId);
         console.log("emailAddress", emailAddress);
 
         const authHeader = c.req.header("x-mcp-authorization");
@@ -295,17 +294,11 @@ export default new Hono<{ Bindings: Env }>()
           return c.json({ error: "missing MCP authorization header" }, 400);
         }
 
-        console.log("authorization header", authHeader);
-        console.log(
-          "authorization header substring",
-          authHeader.substring(0, 8) + "…"
-        );
-        console.log(
-          "authorization header substring",
-          authHeader.substring(8, 16) + "…"
-        );
+        // Slice off "Bearer "
+        const accessToken = authHeader.slice(7).trim();
 
-        const accessToken = authHeader.split(" ")[1];
+        console.log(`authorization header: ${accessToken}`);
+
         if (!accessToken) {
           console.log("missing access token");
           return c.json({ error: "missing access token" }, 400);
@@ -317,6 +310,9 @@ export default new Hono<{ Bindings: Env }>()
           console.log("missing last processed history ID");
           return c.json({ error: "missing last processed history ID" }, 400);
         }
+
+        console.log("lastHistoryId", lastHistoryId);
+        console.log("latestHistoryId", latestHistoryId);
 
         const api = new GoogleService(c.env, accessToken);
 
