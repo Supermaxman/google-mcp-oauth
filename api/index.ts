@@ -285,11 +285,25 @@ export default new Hono<{ Bindings: Env }>()
           return c.json({ error: "missing server name" }, 400);
         }
 
+        console.log("server", server);
+        console.log("historyId", historyId);
+        console.log("emailAddress", emailAddress);
+
         const authHeader = c.req.header("x-mcp-authorization");
         if (!authHeader) {
           console.log("missing MCP authorization header");
           return c.json({ error: "missing MCP authorization header" }, 400);
         }
+
+        console.log("authorization header", authHeader);
+        console.log(
+          "authorization header substring",
+          authHeader.substring(0, 8) + "…"
+        );
+        console.log(
+          "authorization header substring",
+          authHeader.substring(8, 16) + "…"
+        );
 
         const accessToken = authHeader.split(" ")[1];
         if (!accessToken) {
@@ -341,7 +355,6 @@ export default new Hono<{ Bindings: Env }>()
 
         return c.json(response, 200);
       } catch (e: any) {
-        console.log(`${e.message}`);
         console.error("error processing webhook", e);
         // If this throws, Pub/Sub will retry. Only 4xx when truly malformed.
         return c.json(
