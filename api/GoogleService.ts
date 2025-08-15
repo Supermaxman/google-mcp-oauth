@@ -14,7 +14,6 @@ export class GoogleService {
 
   constructor(env: Env, accessToken: string) {
     this.env = env;
-    console.log(`init accessToken: ${accessToken}`);
     this.accessToken = accessToken;
   }
 

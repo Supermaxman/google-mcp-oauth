@@ -297,8 +297,6 @@ export default new Hono<{ Bindings: Env }>()
         // Slice off "Bearer "
         const accessToken = authHeader.slice(7).trim();
 
-        console.log(`authorization header: ${accessToken}`);
-
         if (!accessToken) {
           console.log("missing access token");
           return c.json({ error: "missing access token" }, 400);
