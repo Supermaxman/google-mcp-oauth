@@ -281,22 +281,26 @@ export default new Hono<{ Bindings: Env }>()
         // If you haven’t wired history listing yet, just return the basics.
         const server = c.req.header("x-mcp-name");
         if (!server) {
+          console.log("missing server name");
           return c.json({ error: "missing server name" }, 400);
         }
 
         const authHeader = c.req.header("x-mcp-authorization");
         if (!authHeader) {
+          console.log("missing MCP authorization header");
           return c.json({ error: "missing MCP authorization header" }, 400);
         }
 
         const accessToken = authHeader.split(" ")[1];
         if (!accessToken) {
+          console.log("missing access token");
           return c.json({ error: "missing access token" }, 400);
         }
         const latestHistoryId = `${historyId}`;
         const lastHistoryId = await getServerCursor(c.env, server);
 
         if (!lastHistoryId) {
+          console.log("missing last processed history ID");
           return c.json({ error: "missing last processed history ID" }, 400);
         }
 
@@ -308,6 +312,7 @@ export default new Hono<{ Bindings: Env }>()
         await putServerCursor(c.env, server, latestHistoryId);
 
         if (messageIds.length === 0) {
+          console.log("no new messages");
           const response: WebhookResponse = {
             reqResponseCode: 204, // your orchestrator will return 204 to Pub/Sub
             reqResponseContent: "",
@@ -315,9 +320,10 @@ export default new Hono<{ Bindings: Env }>()
           };
           return c.json(response, 200);
         }
+        console.log(`${messageIds.length} new messages`);
 
         const respData = {
-          server,
+          name: server,
           emailAddress: emailAddress,
           emailIds: messageIds,
         };
@@ -326,7 +332,7 @@ export default new Hono<{ Bindings: Env }>()
           reqResponseCode: 204, // your orchestrator will return 204 to Pub/Sub
           reqResponseContent: "",
           reqResponseContentType: "text",
-          promptContent: `Gmail notification received.\n\n\`\`\`json\n${JSON.stringify(
+          promptContent: `Google email notification received:\n\n\`\`\`json\n${JSON.stringify(
             respData,
             null,
             2
@@ -335,6 +341,8 @@ export default new Hono<{ Bindings: Env }>()
 
         return c.json(response, 200);
       } catch (e: any) {
+        console.log(`${e.message}`);
+        console.error("error processing webhook", e);
         // If this throws, Pub/Sub will retry. Only 4xx when truly malformed.
         return c.json(
           { error: e?.message ?? "Invalid Pub/Sub push payload" },
