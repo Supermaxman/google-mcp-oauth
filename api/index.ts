@@ -313,9 +313,19 @@ export default new Hono<{ Bindings: Env }>()
         console.log("latestHistoryId", latestHistoryId);
 
         const api = new GoogleService(c.env, accessToken);
+        console.log("accessToken", accessToken.slice(0, 12) + "…");
 
-        const { messageIds } = await api.listInboxAddsSince(lastHistoryId);
+        const {
+          messageIds,
+          latestHistoryId: newLatestHistoryId,
+          hasMore,
+        } = await api.listInboxAddsSince(lastHistoryId);
 
+        console.log("newLatestHistoryId", newLatestHistoryId);
+        console.log("hasMore", hasMore);
+
+        // TODO consider using the newLatestHistoryId instead of latestHistoryId
+        console.log(`fast forward from ${lastHistoryId} to ${latestHistoryId}`);
         // preemptively update the cursor so we don't repeat processing, not end of the world if we miss a few
         await putServerCursor(c.env, server, latestHistoryId);
 
