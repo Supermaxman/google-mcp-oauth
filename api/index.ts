@@ -258,6 +258,8 @@ export default new Hono<{ Bindings: Env }>()
           };
         }>();
 
+        console.log("body", body);
+
         // Decode base64url payload
         const b64 = body.message?.data ?? "";
         const std = b64.replace(/-/g, "+").replace(/_/g, "/");
@@ -270,6 +272,7 @@ export default new Hono<{ Bindings: Env }>()
           const payload = JSON.parse(decoded);
           emailAddress = payload.emailAddress;
           historyId = payload.historyId;
+          console.log("payload", payload);
         } catch {
           // some libs may duplicate these in attributes
         }
