@@ -9,7 +9,12 @@ import {
 } from "./lib/google-auth.ts";
 import { cors } from "hono/cors";
 import { Hono } from "hono";
-import type { WebhookResponse } from "../types";
+import type {
+  WebhookResponse,
+  WebhookProcessResponse,
+  EmailProcessData,
+  GoogleAuthContext,
+} from "../types";
 import { getServerCursor, putServerCursor } from "./lib/kv-helpers.ts";
 import { GoogleService } from "./GoogleService.ts";
 
@@ -234,142 +239,183 @@ export default new Hono<{ Bindings: Env }>()
       GoogleMCP.serve("/mcp", { binding: "GOOGLE_MCP_OBJECT" }).fetch
     )
   )
-  .use(
-    "/webhooks",
-    googlePubSubOidcAuthMiddleware({
-      audience: (c) => c.req.url,
-      serviceAccountEmail: saEmailFor,
-    })
-  )
   // Google webhooks (Gmail via Pub/Sub push)
   .route(
     "/webhooks",
-    new Hono<{ Bindings: Env }>().post("/email-notify", async (c) => {
-      // Pub/Sub push format; base64-encoded message.data includes JSON { emailAddress, historyId }
-      try {
-        // At this point the request is verified by the middleware.
-
-        // Pub/Sub envelope
-        const body = await c.req.json<{
-          message?: {
-            data?: string;
-            attributes?: Record<string, string>;
-            publishTime?: string;
-          };
-        }>();
-
-        console.log("body", body);
-
-        // Decode base64url payload
-        const b64 = body.message?.data ?? "";
-        const std = b64.replace(/-/g, "+").replace(/_/g, "/");
-        const pad = std.length % 4 ? 4 - (std.length % 4) : 0;
-        const decoded = atob(std + "=".repeat(pad));
-        let emailAddress: string | undefined;
-        let historyId: string | undefined;
-
+    new Hono<{ Bindings: Env }>()
+      .use(
+        "/email-notify",
+        googlePubSubOidcAuthMiddleware({
+          audience: (c) => c.req.url,
+          serviceAccountEmail: saEmailFor,
+        })
+      )
+      .post("/email-notify", async (c) => {
+        // Pub/Sub push format; base64-encoded message.data includes JSON { emailAddress, historyId }
         try {
-          const payload = JSON.parse(decoded);
-          emailAddress = payload.emailAddress;
-          historyId = payload.historyId;
-          console.log("payload", payload);
-        } catch {
-          // some libs may duplicate these in attributes
-        }
-        emailAddress = emailAddress ?? body.message?.attributes?.emailAddress;
-        historyId = historyId ?? body.message?.attributes?.historyId;
-        // const publishTime = body.message?.publishTime;
+          // At this point the request is verified by the middleware.
 
-        // You asked to return server name + message IDs (if available) + email (if present).
-        // If you haven’t wired history listing yet, just return the basics.
-        const server = c.req.header("x-mcp-name");
-        if (!server) {
-          console.log("missing server name");
-          return c.json({ error: "missing server name" }, 400);
-        }
+          // Pub/Sub envelope
+          const body = await c.req.json<{
+            message?: {
+              data?: string;
+              attributes?: Record<string, string>;
+              publishTime?: string;
+            };
+          }>();
 
-        console.log("server", server);
-        console.log("emailAddress", emailAddress);
+          console.log("body", body);
 
-        const authHeader = c.req.header("x-mcp-authorization");
-        if (!authHeader) {
-          console.log("missing MCP authorization header");
-          return c.json({ error: "missing MCP authorization header" }, 400);
-        }
+          // Decode base64url payload
+          const b64 = body.message?.data ?? "";
+          const std = b64.replace(/-/g, "+").replace(/_/g, "/");
+          const pad = std.length % 4 ? 4 - (std.length % 4) : 0;
+          const decoded = atob(std + "=".repeat(pad));
+          let emailAddress: string | undefined;
+          let historyId: string | undefined;
 
-        // Slice off "Bearer "
-        const accessToken = authHeader.slice(7).trim();
+          try {
+            const payload = JSON.parse(decoded);
+            emailAddress = payload.emailAddress;
+            historyId = payload.historyId;
+            console.log("payload", payload);
+          } catch {
+            // some libs may duplicate these in attributes
+          }
+          emailAddress = emailAddress ?? body.message?.attributes?.emailAddress;
+          historyId = historyId ?? body.message?.attributes?.historyId;
+          // const publishTime = body.message?.publishTime;
 
-        if (!accessToken) {
-          console.log("missing access token");
-          return c.json({ error: "missing access token" }, 400);
-        }
-        const latestHistoryId = `${historyId}`;
-        const lastHistoryId = await getServerCursor(c.env, server);
+          // You asked to return server name + message IDs (if available) + email (if present).
+          // If you haven’t wired history listing yet, just return the basics.
+          if (!emailAddress || !historyId) {
+            console.log("missing email address or history ID");
+            return c.json(
+              { error: "missing email address or history ID" },
+              400
+            );
+          }
+          console.log("emailAddress", emailAddress);
+          console.log("historyId", historyId);
 
-        if (!lastHistoryId) {
-          console.log("missing last processed history ID");
-          return c.json({ error: "missing last processed history ID" }, 400);
-        }
+          const respData: EmailProcessData = {
+            emailAddress: emailAddress,
+            historyId: historyId,
+          };
 
-        console.log("lastHistoryId", lastHistoryId);
-        console.log("latestHistoryId", latestHistoryId);
-
-        const api = new GoogleService(c.env, accessToken);
-        console.log("accessToken", accessToken.slice(0, 12) + "…");
-
-        const {
-          messageIds,
-          latestHistoryId: newLatestHistoryId,
-          hasMore,
-        } = await api.listInboxAddsSince(lastHistoryId);
-
-        console.log("newLatestHistoryId", newLatestHistoryId);
-        console.log("hasMore", hasMore);
-
-        // TODO consider using the newLatestHistoryId instead of latestHistoryId
-        console.log(`fast forward from ${lastHistoryId} to ${latestHistoryId}`);
-        // preemptively update the cursor so we don't repeat processing, not end of the world if we miss a few
-        await putServerCursor(c.env, server, latestHistoryId);
-
-        if (messageIds.length === 0) {
-          console.log("no new messages");
-          const response: WebhookResponse = {
+          const response: WebhookResponse<EmailProcessData> = {
             reqResponseCode: 202, // your orchestrator will return 202 to Pub/Sub
             reqResponseContent: "",
             reqResponseContentType: "text",
+            processData: respData,
           };
+
           return c.json(response, 200);
+        } catch (e: any) {
+          console.error("error processing webhook", e);
+          // If this throws, Pub/Sub will retry. Only 4xx when truly malformed.
+          return c.json(
+            { error: e?.message ?? "Invalid Pub/Sub push payload" },
+            400
+          );
         }
-        console.log(`${messageIds.length} new messages`);
+      })
+      .route(
+        "/email-notify/process",
+        new Hono<{
+          Bindings: Env;
+          Variables: { googleAuth: GoogleAuthContext };
+        }>()
+          .use(googleBearerTokenAuthMiddleware)
+          .post("/", async (c) => {
+            // Pub/Sub push format; base64-encoded message.data includes JSON { emailAddress, historyId }
+            try {
+              // At this point the request is verified by the middleware.
 
-        const respData = {
-          name: server,
-          emailAddress: emailAddress,
-          emailIds: messageIds,
-        };
+              // Pub/Sub envelope
+              const body = (await c.req.json()) as EmailProcessData;
 
-        const response: WebhookResponse = {
-          reqResponseCode: 202, // your orchestrator will return 202 to Pub/Sub
-          reqResponseContent: "",
-          reqResponseContentType: "text",
-          promptContent: `Google email notification received:\n\n\`\`\`json\n${JSON.stringify(
-            respData,
-            null,
-            2
-          )}\n\`\`\``,
-        };
+              console.log("body", body);
+              const { emailAddress, historyId } = body;
 
-        return c.json(response, 200);
-      } catch (e: any) {
-        console.error("error processing webhook", e);
-        // If this throws, Pub/Sub will retry. Only 4xx when truly malformed.
-        return c.json(
-          { error: e?.message ?? "Invalid Pub/Sub push payload" },
-          400
-        );
-      }
-    })
+              const server = c.req.header("x-mcp-name");
+              if (!server) {
+                console.log("missing server name");
+                return c.json({ error: "missing server name" }, 400);
+              }
+
+              console.log("server", server);
+              console.log("emailAddress", emailAddress);
+
+              const { accessToken } = c.get("googleAuth");
+
+              const latestHistoryId = `${historyId}`;
+              const lastHistoryId = await getServerCursor(c.env, server);
+
+              if (!lastHistoryId) {
+                console.log("missing last processed history ID");
+                return c.json(
+                  { error: "missing last processed history ID" },
+                  400
+                );
+              }
+
+              console.log("lastHistoryId", lastHistoryId);
+              console.log("latestHistoryId", latestHistoryId);
+
+              const api = new GoogleService(c.env, accessToken);
+              console.log("accessToken", accessToken.slice(0, 12) + "…");
+
+              const {
+                messageIds,
+                latestHistoryId: newLatestHistoryId,
+                hasMore,
+              } = await api.listInboxAddsSince(lastHistoryId);
+
+              console.log("newLatestHistoryId", newLatestHistoryId);
+              console.log("hasMore", hasMore);
+
+              // TODO consider using the newLatestHistoryId instead of latestHistoryId
+              console.log(
+                `fast forward from ${lastHistoryId} to ${latestHistoryId}`
+              );
+              // preemptively update the cursor so we don't repeat processing, not end of the world if we miss a few
+              await putServerCursor(c.env, server, latestHistoryId);
+
+              if (messageIds.length === 0) {
+                console.log("no new messages");
+                const response: WebhookProcessResponse = {
+                  promptContent: undefined,
+                };
+                return c.json(response, 200);
+              }
+              console.log(`${messageIds.length} new messages`);
+
+              const respData = {
+                name: server,
+                emailAddress: emailAddress,
+                emailIds: messageIds,
+              };
+
+              const response: WebhookProcessResponse = {
+                promptContent: `Google email notification received:\n\n\`\`\`json\n${JSON.stringify(
+                  respData,
+                  null,
+                  2
+                )}\n\`\`\``,
+              };
+
+              return c.json(response, 200);
+            } catch (e: any) {
+              console.error("error processing webhook process", e);
+              // If this throws, Pub/Sub will retry. Only 4xx when truly malformed.
+              return c.json(
+                { error: e?.message ?? "Invalid Pub/Sub push payload" },
+                400
+              );
+            }
+          })
+      )
   )
 
   // Health check endpoint

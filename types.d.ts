@@ -38,8 +38,13 @@ export type GoogleAuthContext = {
   scope?: string;
 };
 
+export type EmailProcessData = {
+  emailAddress: string;
+  historyId: string;
+};
+
 // Webhook response contract for proxied webhook handling
-export type WebhookResponse = {
+export type WebhookResponse<T> = {
   /** HTTP status code to proxy back to the origin of the webhook */
   reqResponseCode: number;
   /** body string to proxy back; if JSON, stringify it */
@@ -47,5 +52,9 @@ export type WebhookResponse = {
   /** content type for reqResponseContent: "json" or "text" */
   reqResponseContentType?: "json" | "text";
   /** optional return to run with the agent to do something */
+  processData?: T;
+};
+
+export type WebhookProcessResponse = {
   promptContent?: string;
 };

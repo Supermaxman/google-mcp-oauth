@@ -2,6 +2,7 @@ import { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import { decode } from "hono/jwt";
+import type { GoogleAuthContext } from "../../types";
 
 type OidcOpts = {
   /**
@@ -246,6 +247,7 @@ export async function refreshAccessToken(
 
 export const googleBearerTokenAuthMiddleware = createMiddleware<{
   Bindings: Env;
+  Variables: { googleAuth: GoogleAuthContext };
 }>(async (c, next) => {
   const auth = c.req.header("Authorization");
 
@@ -293,5 +295,6 @@ export const googleBearerTokenAuthMiddleware = createMiddleware<{
   // }
   // @ts-expect-error Worker executionCtx props
   c.executionCtx.props = { accessToken };
+  c.set("googleAuth", { accessToken });
   await next();
 });
