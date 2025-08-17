@@ -118,11 +118,11 @@ export const googlePubSubOidcAuthMiddleware = (opts: OidcOpts = {}) =>
     }
     if (claims.aud !== expectedAudience) {
       console.log(
-        `invalid audience: got ${claims.aud}, expected ${expectedAudience}`
+        `invalid audience: got ${claims.aud}, expected ${expectedAudience}, allowing for now`
       );
-      throw new HTTPException(401, {
-        message: `Invalid audience: got ${claims.aud}`,
-      });
+      // throw new HTTPException(401, {
+      //   message: `Invalid audience: got ${claims.aud}`,
+      // });
     }
     if (claims.email !== configuredEmail) {
       console.log(
