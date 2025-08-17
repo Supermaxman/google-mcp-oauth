@@ -111,17 +111,23 @@ export const googlePubSubOidcAuthMiddleware = (opts: OidcOpts = {}) =>
 
     // Enforce claims
     if (claims.iss !== "https://accounts.google.com") {
-      console.log(`invalid issuer: ${claims.iss}`);
+      console.log(
+        `invalid issuer: got ${claims.iss}, expected https://accounts.google.com`
+      );
       throw new HTTPException(401, { message: "Invalid issuer" });
     }
     if (claims.aud !== expectedAudience) {
-      console.log(`invalid audience: got ${claims.aud}`);
+      console.log(
+        `invalid audience: got ${claims.aud}, expected ${expectedAudience}`
+      );
       throw new HTTPException(401, {
         message: `Invalid audience: got ${claims.aud}`,
       });
     }
     if (claims.email !== configuredEmail) {
-      console.log(`invalid signer email: got ${claims.email}`);
+      console.log(
+        `invalid signer email: got ${claims.email}, expected ${configuredEmail}`
+      );
       throw new HTTPException(401, {
         message: `Invalid signer email: got ${claims.email}`,
       });
