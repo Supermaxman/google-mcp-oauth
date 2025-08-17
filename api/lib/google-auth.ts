@@ -40,6 +40,7 @@ export const googlePubSubOidcAuthMiddleware = (opts: OidcOpts = {}) =>
     const auth = c.req.header("Authorization");
     if (!auth || !auth.startsWith("Bearer ")) {
       c.header("WWW-Authenticate", 'Bearer realm="pubsub"');
+      console.log("missing or invalid bearer token");
       throw new HTTPException(401, {
         message: "Missing or invalid bearer token",
       });
@@ -58,6 +59,7 @@ export const googlePubSubOidcAuthMiddleware = (opts: OidcOpts = {}) =>
         );
         c.header("Cache-Control", "no-store");
         c.header("Pragma", "no-cache");
+        console.log("expired id_token");
         throw new HTTPException(401, { message: "Expired id_token" });
       }
     } catch {
@@ -76,6 +78,9 @@ export const googlePubSubOidcAuthMiddleware = (opts: OidcOpts = {}) =>
         : opts.serviceAccountEmail;
 
     if (!configuredEmail) {
+      console.log(
+        "server misconfigured: GOOGLE_PUBSUB_PUSH_SERVICE_ACCOUNT or serviceAccountEmail resolver is required"
+      );
       throw new HTTPException(500, {
         message:
           "Server misconfigured: GOOGLE_PUBSUB_PUSH_SERVICE_ACCOUNT or serviceAccountEmail resolver is required",
@@ -90,6 +95,15 @@ export const googlePubSubOidcAuthMiddleware = (opts: OidcOpts = {}) =>
     );
 
     if (!verifyResp.ok) {
+      console.log(
+        `invalid id_token: ${verifyResp.statusText} ${verifyResp.status}`
+      );
+      try {
+        const errorBody = await verifyResp.text();
+        console.log(`errorBody: ${errorBody}`);
+      } catch (e) {
+        console.log(`errorBody: ${e}`);
+      }
       throw new HTTPException(401, { message: "Invalid id_token" });
     }
 
@@ -97,14 +111,17 @@ export const googlePubSubOidcAuthMiddleware = (opts: OidcOpts = {}) =>
 
     // Enforce claims
     if (claims.iss !== "https://accounts.google.com") {
+      console.log(`invalid issuer: ${claims.iss}`);
       throw new HTTPException(401, { message: "Invalid issuer" });
     }
     if (claims.aud !== expectedAudience) {
+      console.log(`invalid audience: got ${claims.aud}`);
       throw new HTTPException(401, {
         message: `Invalid audience: got ${claims.aud}`,
       });
     }
     if (claims.email !== configuredEmail) {
+      console.log(`invalid signer email: got ${claims.email}`);
       throw new HTTPException(401, {
         message: `Invalid signer email: got ${claims.email}`,
       });
@@ -112,6 +129,7 @@ export const googlePubSubOidcAuthMiddleware = (opts: OidcOpts = {}) =>
     const verified =
       claims.email_verified === true || claims.email_verified === "true";
     if (!verified) {
+      console.log(`service account email not verified: ${claims.email}`);
       throw new HTTPException(401, {
         message: "Service account email not verified",
       });
@@ -253,12 +271,14 @@ export const googleBearerTokenAuthMiddleware = createMiddleware<{
 
   if (!auth) {
     c.header("WWW-Authenticate", 'Bearer realm="api"');
+    console.log("missing or invalid access token");
     throw new HTTPException(401, {
       message: "Missing or invalid access token",
     });
   }
   if (!auth.startsWith("Bearer ")) {
     c.header("WWW-Authenticate", 'Bearer realm="api"');
+    console.log("missing or invalid access token");
     throw new HTTPException(401, {
       message: "Missing or invalid access token",
     });
@@ -269,6 +289,7 @@ export const googleBearerTokenAuthMiddleware = createMiddleware<{
 
   if (!accessToken) {
     c.header("WWW-Authenticate", 'Bearer realm="api"');
+    console.log("missing or invalid access token");
     throw new HTTPException(401, {
       message: "Missing or invalid access token",
     });
