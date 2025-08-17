@@ -335,7 +335,7 @@ export default new Hono<{ Bindings: Env }>()
         if (messageIds.length === 0) {
           console.log("no new messages");
           const response: WebhookResponse = {
-            reqResponseCode: 204, // your orchestrator will return 204 to Pub/Sub
+            reqResponseCode: 202, // your orchestrator will return 202 to Pub/Sub
             reqResponseContent: "",
             reqResponseContentType: "text",
           };
@@ -350,7 +350,7 @@ export default new Hono<{ Bindings: Env }>()
         };
 
         const response: WebhookResponse = {
-          reqResponseCode: 204, // your orchestrator will return 204 to Pub/Sub
+          reqResponseCode: 202, // your orchestrator will return 202 to Pub/Sub
           reqResponseContent: "",
           reqResponseContentType: "text",
           promptContent: `Google email notification received:\n\n\`\`\`json\n${JSON.stringify(
