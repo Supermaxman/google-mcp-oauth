@@ -246,7 +246,6 @@ export default new Hono<{ Bindings: Env }>()
       .use(
         "/email-notify",
         googlePubSubOidcAuthMiddleware({
-          audience: (c) => c.req.url,
           serviceAccountEmail: saEmailFor,
         })
       )

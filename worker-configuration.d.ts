@@ -6,6 +6,7 @@ declare namespace Cloudflare {
     GOOGLE_CLIENT_ID: string;
     GOOGLE_CLIENT_SECRET: string;
     GOOGLE_PROJECT_NAME?: string; // Pub/Sub topic resource name for Gmail watch
+    GOOGLE_TOKEN_AUDIENCE_PREFIX: string;
     GOOGLE_MCP_OBJECT: DurableObjectNamespace<import("./api/index").GoogleMCP>;
     GMAIL_HISTORY_KV: KVNamespace;
   }

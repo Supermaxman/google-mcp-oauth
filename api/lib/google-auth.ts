@@ -6,14 +6,6 @@ import type { GoogleAuthContext } from "../../types";
 
 type OidcOpts = {
   /**
-   * Expected audience (aud) — MUST match the value you set with:
-   *   --push-auth-token-audience="https://chat.aiescape.io/.../email-notify"
-   * You can pass a string or a function to compute it from the request.
-   * Defaults to `c.req.url`.
-   */
-  audience?: string | ((c: Context) => string);
-
-  /**
    * The service account email that Pub/Sub uses to sign the OIDC token,
    * i.e. the same one you passed to:
    *   --push-auth-service-account="push-invoker-...@PROJECT_ID.iam.gserviceaccount.com"
@@ -66,12 +58,6 @@ export const googlePubSubOidcAuthMiddleware = (opts: OidcOpts = {}) =>
       // If decode fails, we’ll still attempt remote verification below
     }
 
-    // Resolve expectations
-    const expectedAudience =
-      typeof opts.audience === "function"
-        ? opts.audience(c)
-        : opts.audience || c.req.url;
-
     const configuredEmail =
       typeof opts.serviceAccountEmail === "function"
         ? opts.serviceAccountEmail(c)
@@ -116,13 +102,20 @@ export const googlePubSubOidcAuthMiddleware = (opts: OidcOpts = {}) =>
       );
       throw new HTTPException(401, { message: "Invalid issuer" });
     }
-    if (claims.aud !== expectedAudience) {
+    const expectedAudience = c.env.GOOGLE_TOKEN_AUDIENCE_PREFIX;
+    if (!expectedAudience) {
+      console.log("GOOGLE_TOKEN_AUDIENCE_PREFIX is not set");
+      throw new HTTPException(401, {
+        message: "GOOGLE_TOKEN_AUDIENCE_PREFIX is not set",
+      });
+    }
+    if (!claims.aud.startsWith(expectedAudience)) {
       console.log(
-        `invalid audience: got ${claims.aud}, expected ${expectedAudience}, allowing for now`
+        `invalid audience: got ${claims.aud}, expected ${expectedAudience} prefix`
       );
-      // throw new HTTPException(401, {
-      //   message: `Invalid audience: got ${claims.aud}`,
-      // });
+      throw new HTTPException(401, {
+        message: `Invalid audience: got ${claims.aud}`,
+      });
     }
     if (claims.email !== configuredEmail) {
       console.log(
