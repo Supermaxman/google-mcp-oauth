@@ -1,23 +1,76 @@
 import { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
-import { decode } from "hono/jwt";
-import type { GoogleAuthContext } from "../../types";
+import { createRemoteJWKSet, jwtVerify } from "jose";
+import { GoogleAuthContext } from "../../types";
+
+const GOOGLE_JWKS = createRemoteJWKSet(
+  new URL("https://www.googleapis.com/oauth2/v3/certs")
+);
+
+function audMatchesPrefix(aud: string, prefix: string): boolean {
+  try {
+    const a = new URL(aud);
+    const p = new URL(prefix);
+    if (a.origin.toLowerCase() !== p.origin.toLowerCase()) return false;
+    const strip = (s: string) => s.replace(/\/+$/, "");
+    const ap = strip(a.pathname);
+    const pp = strip(p.pathname);
+    const okPath = ap === pp || ap.startsWith(pp + "/"); // /api/webhooks or /api/webhooks/...
+    const noQsHash = !a.search && !a.hash; // optional hardening
+    return okPath && noQsHash;
+  } catch {
+    // If audience isn't a URL, follow stated policy (prefix match).
+    // If you only ever expect URLs, consider returning false instead.
+    return aud.startsWith(prefix);
+  }
+}
+
+function audiencesFromClaim(claim: unknown): string[] {
+  if (typeof claim === "string") return [claim];
+  if (Array.isArray(claim))
+    return claim.filter((x): x is string => typeof x === "string");
+  return [];
+}
+
+export async function verifyPubSubIdToken(
+  idToken: string,
+  expectedEmail: string,
+  audPrefix: string
+) {
+  const { payload } = await jwtVerify(idToken, GOOGLE_JWKS, {
+    issuer: ["https://accounts.google.com", "accounts.google.com"],
+    algorithms: ["RS256"],
+    clockTolerance: "60s",
+  });
+
+  // Enforce audience against your prefix policy (handles string | string[])
+  const audiences = audiencesFromClaim(payload.aud);
+  const audOk = audiences.some((a) => audMatchesPrefix(a, audPrefix));
+  if (!audOk) {
+    throw new Error(`Invalid audience: got ${audiences.join(", ")}`);
+  }
+
+  // Enforce signer identity
+  const email = String(payload.email ?? "");
+  const verified =
+    payload.email_verified === true || payload.email_verified === "true";
+  if (email !== expectedEmail || !verified) {
+    throw new Error(
+      `Email mismatch or not verified: got ${email}, expected ${expectedEmail}`
+    );
+  }
+
+  return payload; // safe claims
+}
 
 type OidcOpts = {
-  /**
-   * The service account email that Pub/Sub uses to sign the OIDC token,
-   * i.e. the same one you passed to:
-   *   --push-auth-service-account="push-invoker-...@PROJECT_ID.iam.gserviceaccount.com"
-   * You can pass a string or a function to compute it (e.g., by x-mcp-name).
-   * Defaults to env.GOOGLE_PUBSUB_PUSH_SERVICE_ACCOUNT.
-   */
   serviceAccountEmail?: string | ((c: Context) => string);
 };
 
 type PubSubClaims = {
   iss: string;
-  aud: string;
+  aud: string | string[];
   email: string;
   email_verified: string | boolean;
   exp?: number | string;
@@ -29,6 +82,7 @@ export const googlePubSubOidcAuthMiddleware = (opts: OidcOpts = {}) =>
     Bindings: Env;
     Variables: { pubsubClaims: PubSubClaims };
   }>(async (c, next) => {
+    // --- Authorization header ---
     const auth = c.req.header("Authorization");
     if (!auth || !auth.startsWith("Bearer ")) {
       c.header("WWW-Authenticate", 'Bearer realm="pubsub"');
@@ -37,25 +91,15 @@ export const googlePubSubOidcAuthMiddleware = (opts: OidcOpts = {}) =>
         message: "Missing or invalid bearer token",
       });
     }
-
     const idToken = auth.slice(7).trim();
 
-    // Optional quick local exp check to short-circuit obviously stale tokens
-    try {
-      const decoded = decode(idToken);
-      const exp = (decoded?.payload as any)?.exp as number | undefined;
-      if (exp && exp < Date.now() / 1000 + 30) {
-        c.header(
-          "WWW-Authenticate",
-          'Bearer error="invalid_token", error_description="The id_token is expired"'
-        );
-        c.header("Cache-Control", "no-store");
-        c.header("Pragma", "no-cache");
-        console.log("expired id_token");
-        throw new HTTPException(401, { message: "Expired id_token" });
-      }
-    } catch {
-      // If decode fails, we’ll still attempt remote verification below
+    // --- Resolve config ---
+    const audPrefix = c.env.GOOGLE_TOKEN_AUDIENCE_PREFIX;
+    if (!audPrefix) {
+      console.log("GOOGLE_TOKEN_AUDIENCE_PREFIX is not set");
+      throw new HTTPException(500, {
+        message: "Server misconfigured: missing GOOGLE_TOKEN_AUDIENCE_PREFIX",
+      });
     }
 
     const configuredEmail =
@@ -65,77 +109,35 @@ export const googlePubSubOidcAuthMiddleware = (opts: OidcOpts = {}) =>
 
     if (!configuredEmail) {
       console.log(
-        "server misconfigured: GOOGLE_PUBSUB_PUSH_SERVICE_ACCOUNT or serviceAccountEmail resolver is required"
+        "Missing service account email (opts or GOOGLE_PUBSUB_PUSH_SERVICE_ACCOUNT)"
       );
       throw new HTTPException(500, {
-        message:
-          "Server misconfigured: GOOGLE_PUBSUB_PUSH_SERVICE_ACCOUNT or serviceAccountEmail resolver is required",
+        message: "Server misconfigured: missing service account email",
       });
     }
 
-    // Verify via Google tokeninfo (validates signature, issuer, etc.)
-    const verifyResp = await fetch(
-      `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(
-        idToken
-      )}`
-    );
-
-    if (!verifyResp.ok) {
-      console.log(
-        `invalid id_token: ${verifyResp.statusText} ${verifyResp.status}`
+    // --- Verify token locally ---
+    try {
+      const claims = (await verifyPubSubIdToken(
+        idToken,
+        configuredEmail,
+        audPrefix
+      )) as unknown as PubSubClaims;
+      c.set("pubsubClaims", claims);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Invalid id_token";
+      c.header(
+        "WWW-Authenticate",
+        `Bearer error="invalid_token", error_description="${msg.replace(
+          /"/g,
+          "'"
+        )}"`
       );
-      try {
-        const errorBody = await verifyResp.text();
-        console.log(`errorBody: ${errorBody}`);
-      } catch (e) {
-        console.log(`errorBody: ${e}`);
-      }
+      c.header("Cache-Control", "no-store");
+      c.header("Pragma", "no-cache");
+      console.log(`id_token verification failed: ${msg}`);
       throw new HTTPException(401, { message: "Invalid id_token" });
     }
-
-    const claims = (await verifyResp.json()) as PubSubClaims;
-
-    // Enforce claims
-    if (claims.iss !== "https://accounts.google.com") {
-      console.log(
-        `invalid issuer: got ${claims.iss}, expected https://accounts.google.com`
-      );
-      throw new HTTPException(401, { message: "Invalid issuer" });
-    }
-    const expectedAudience = c.env.GOOGLE_TOKEN_AUDIENCE_PREFIX;
-    if (!expectedAudience) {
-      console.log("GOOGLE_TOKEN_AUDIENCE_PREFIX is not set");
-      throw new HTTPException(401, {
-        message: "GOOGLE_TOKEN_AUDIENCE_PREFIX is not set",
-      });
-    }
-    if (!claims.aud.startsWith(expectedAudience)) {
-      console.log(
-        `invalid audience: got ${claims.aud}, expected ${expectedAudience} prefix`
-      );
-      throw new HTTPException(401, {
-        message: `Invalid audience: got ${claims.aud}`,
-      });
-    }
-    if (claims.email !== configuredEmail) {
-      console.log(
-        `invalid signer email: got ${claims.email}, expected ${configuredEmail}`
-      );
-      throw new HTTPException(401, {
-        message: `Invalid signer email: got ${claims.email}`,
-      });
-    }
-    const verified =
-      claims.email_verified === true || claims.email_verified === "true";
-    if (!verified) {
-      console.log(`service account email not verified: ${claims.email}`);
-      throw new HTTPException(401, {
-        message: "Service account email not verified",
-      });
-    }
-
-    // Stash claims for downstream handler(s)
-    c.set("pubsubClaims", claims);
 
     await next();
   });
