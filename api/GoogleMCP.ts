@@ -11,15 +11,11 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
     return new GoogleService(this.env, this.props.accessToken);
   }
 
-  formatResponse = (description: string, data: unknown) => ({
+  formatResponse = (data: unknown) => ({
     content: [
       {
         type: "text" as const,
-        text: `Success! ${description}\n\nResult:\n${JSON.stringify(
-          data,
-          null,
-          2
-        )}`,
+        text: JSON.stringify(data, null, 2),
       },
     ],
   });
@@ -50,7 +46,7 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
           startDate,
           endDate
         );
-        return this.formatResponse("Calendar events retrieved", events);
+        return this.formatResponse(events);
       }
     );
 
@@ -86,7 +82,7 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
           args.categories,
           args.attendees
         );
-        return this.formatResponse("Calendar event created", event);
+        return this.formatResponse(event);
       }
     );
 
@@ -96,7 +92,7 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
       { eventId: z.string().describe("Event ID") },
       async ({ eventId }) => {
         await this.googleService.deleteCalendarEvent(eventId);
-        return this.formatResponse("Calendar event deleted", { eventId });
+        return this.formatResponse({ eventId });
       }
     );
 
@@ -106,7 +102,7 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
       { eventId: z.string().describe("Event ID") },
       async ({ eventId }) => {
         const event = await this.googleService.getCalendarEvent(eventId);
-        return this.formatResponse("Calendar event retrieved", event);
+        return this.formatResponse(event);
       }
     );
 
@@ -138,7 +134,7 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
           rest.categories,
           rest.attendees
         );
-        return this.formatResponse("Calendar event updated", event);
+        return this.formatResponse(event);
       }
     );
 
@@ -178,7 +174,7 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
           conversationId,
           query
         );
-        return this.formatResponse("Emails retrieved", emails);
+        return this.formatResponse(emails);
       }
     );
 
@@ -188,7 +184,7 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
       { emailId: z.string() },
       async ({ emailId }) => {
         await this.googleService.markEmailAsRead(emailId);
-        return this.formatResponse("Email marked as read", { emailId });
+        return this.formatResponse({ emailId });
       }
     );
 
@@ -198,7 +194,7 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
       { emailId: z.string() },
       async ({ emailId }) => {
         const res = await this.googleService.archiveEmail(emailId);
-        return this.formatResponse("Email archived", res);
+        return this.formatResponse(res);
       }
     );
 
@@ -208,7 +204,7 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
       { emailId: z.string() },
       async ({ emailId }) => {
         const email = await this.googleService.getEmail(emailId);
-        return this.formatResponse("Email retrieved", email);
+        return this.formatResponse(email);
       }
     );
 
@@ -230,7 +226,7 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
           ccRecipients,
           bccRecipients
         );
-        return this.formatResponse("Draft created", draft);
+        return this.formatResponse(draft);
       }
     );
 
@@ -248,7 +244,7 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
           replyAll,
           body
         );
-        return this.formatResponse("Reply draft created", draft);
+        return this.formatResponse(draft);
       }
     );
 
@@ -279,7 +275,7 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
           ccRecipients,
           bccRecipients
         );
-        return this.formatResponse("Draft updated", updated);
+        return this.formatResponse(updated);
       }
     );
 
@@ -289,7 +285,7 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
       { emailId: z.string().describe("Draft ID") },
       async ({ emailId }) => {
         await this.googleService.sendEmail(emailId);
-        return this.formatResponse("Email sent", { emailId });
+        return this.formatResponse({ emailId });
       }
     );
 
@@ -299,7 +295,7 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
       { emailId: z.string() },
       async ({ emailId }) => {
         await this.googleService.deleteEmail(emailId);
-        return this.formatResponse("Email deleted", { emailId });
+        return this.formatResponse({ emailId });
       }
     );
 
@@ -311,7 +307,7 @@ export class GoogleMCP extends McpAgent<Env, unknown, GoogleAuthContext> {
       },
       async ({ serverName }) => {
         await this.googleService.startGmailWatch(serverName);
-        return this.formatResponse("Gmail watch started", { serverName });
+        return this.formatResponse({ serverName });
       }
     );
 
